@@ -1,0 +1,197 @@
+import pygame 
+import sys
+import os
+
+# Initialize Pygame and its mixer
+pygame.init()
+pygame.mixer.init()
+
+#--- CONFIGURATION ---
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+FPS = 60
+
+# Colors (Hex/RGB equivalents)
+BLACK = (0,0,0)
+WHITE = (240,240,245)
+GRAY = (100,100,100)
+COLORS = {
+    'D': (255,0,0),    # Red
+    'F': (0,255,0),    # Green
+    'J': (0,0,255),    # Blue
+    'K': (225,255,0)   # Yellow
+}
+
+# Setup display
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("⚡ Python Rhythm Strike⚡")
+clock = pygame.time.Clock()
+
+#--- AUDIO & TIMING SETUP ---
+# Replace 'track.mp3' with your own audio file path
+AUDIO_FILE = 'track.mp3'
+if os.path.exists(AUDIO_FILE):
+    pygame.mixer.music.load(AUDIO_FILE)
+else:
+    print(f"⚠️ '{AUDIO_FILE}' not found! The game will run in silent mode. Add an audio file to hear music.")
+
+# --- CHART / LEVEL DATA ---
+# Timestamps are in milliseconds (1000 = 1 second)
+# Map Keys: 'D', 'F', 'J', 'K'
+CHART = [
+    {"time": 1000, "key": "D"},
+    {"time": 1500, "key": "F"},
+    {"time": 2000, "key": "J"},
+    {"time": 2500, "key": "K"},
+    {"time": 3000, "key": "D"},
+    {"time": 3200, "key": "F"},
+    {"time": 3400, "key": "J"},
+    {"time": 3600, "key": "K"},
+    {"time": 4500, "key": "D"},
+    {"time": 4500, "key": "K"}, # Double note!
+    {"time": 5500, "key": "F"},
+    {"time": 6000, "key": "J"},
+    {"time": 7000, "key": "D"},
+    {"time": 7500, "key": "K"},
+    {"time": 8000, "key": "F"},
+    {"time": 8500, "key": "J"},
+    {"time": 9000, "key": "D"},
+    {"time": 9200, "key": "F"},
+    {"time": 9400, "key": "J"},
+    {"time": 9600, "key": "K"},
+    {"time": 10000, "key": "D"},
+]
+
+# --- GAME SYSTEM CONSTANTS ---
+LANE_X = { 'D': 250, 'F': 350, 'J': 450, 'K': 550  }
+TARGET_Y = 500               
+NOTE_SPEED = 0.5
+HIT_WINDOW = 100
+
+# --- GAME STATE ---
+score = 0
+combo = 0
+max_combo = 0
+feedback_text = ""
+feedback_color = WHITE
+feedback_timer = 0
+
+# Start audio playback
+if os.path.exists(AUDIO_FILE):
+    pygame.mixer.music.play()
+start_ticks = pygame.time.get_ticks()
+
+# Main Game Loop
+running = True
+while running:
+    # 1. Update Game Timer based on elapsed song milliseconds
+    current_time = pygame.time.get_ticks() - start_ticks
+    
+    # 2. Event Handling
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+            
+        elif event.type == pygame.KEYDOWN:
+            pressed_key = pygame.key.name(event.key).upper()
+            
+            if pressed_key in LANE_X:
+                hit_successful = False
+                
+                # Check if any active note in the pressed lane falls inside the hit window
+                for note in CHART:
+                    if not note.get("hit") and note["key"] == pressed_key:
+                        time_difference = abs(current_time - note["time"])
+                        
+                        if time_difference <= HIT_WINDOW:
+                            note["hit"] = True
+                            hit_successful = True
+                            
+                            # Scoring tier adjustments
+                            if time_difference <= 40:
+                                feedback_text = "PERFECT!"
+                                feedback_color = (0, 255, 255)
+                                score += 300
+                            elif time_difference <= 70:
+                                feedback_text = "GREAT"
+                                feedback_color = (50, 255, 50)
+                                score += 100
+                            else:
+                                feedback_text = "GOOD"
+                                feedback_color = (255, 255, 0)
+                                score += 50
+                                
+                            combo += 1
+                            max_combo = max(max_combo, combo)
+                            feedback_timer = 30 # Show text for 30 frames
+                            break
+                
+                if not hit_successful:
+                    # Struck an empty lane or mistimed horribly
+                    feedback_text = "MISS"
+                    feedback_color = (255, 50, 50)
+                    combo = 0
+                    feedback_timer = 30
+
+    # 3. Draw Background & Target Zones (The Highway)
+    screen.fill(BLACK)
+    
+    # Draw static receptor lanes
+    for lane, x in LANE_X.items():
+        pygame.draw.line(screen, GRAY, (x, 0), (x, SCREEN_HEIGHT), 2)
+        # Target strike zone indicators
+        pygame.draw.circle(screen, COLORS[lane], (x, TARGET_Y), 25, 4)
+        
+        # Display key labels under receptors
+        font = pygame.font.SysFont("Arial", 20, bold=True)
+        lbl = font.render(lane, True, GRAY)
+        screen.blit(lbl, (x - 8, TARGET_Y + 35))
+
+    # 4. Render & Update Falling Notes
+    for note in CHART:
+        # Calculate Y coordinate relative to time elapsed
+        # Y = Target_Y - (Time_Difference * Speed)
+        time_until_hit = note["time"] - current_time
+        note_y = TARGET_Y - (time_until_hit * NOTE_SPEED)
+        
+        # Automatically trigger a miss if the note scrolls off screen past the hit window
+        if time_until_hit < -HIT_WINDOW and not note.get("hit") and not note.get("missed"):
+            note["missed"] = True
+            feedback_text = "MISS"
+            feedback_color = (255, 50, 50)
+            combo = 0
+            feedback_timer = 30
+
+        # Render active, unhit notes visible on screen
+        if not note.get("hit") and -200 < note_y < SCREEN_HEIGHT:
+            x_pos = LANE_X[note["key"]]
+            pygame.draw.circle(screen, COLORS[note["key"]], (x_pos, int(note_y)), 20)
+            pygame.draw.circle(screen, WHITE, (x_pos, int(note_y)), 10)
+
+    # 5. Render UI (Score, Combo, Accuracy Feedback)
+    ui_font = pygame.font.SysFont("Arial", 24, bold=True)
+    
+    # Score display
+    score_surface = ui_font.render(f"SCORE: {score}", True, WHITE)
+    screen.blit(score_surface, (20, 20))
+    
+    # Combo display
+    combo_surface = ui_font.render(f"COMBO: {combo}", True, WHITE)
+    screen.blit(combo_surface, (20, 55))
+
+    # Timing Feedback indicator
+    if feedback_timer > 0:
+        fb_font = pygame.font.SysFont("Arial", 36, bold=True)
+        fb_surface = fb_font.render(feedback_text, True, feedback_color)
+        # Center horizontally
+        fb_rect = fb_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        screen.blit(fb_surface, fb_rect)
+        feedback_timer -= 1
+
+    # refresh screen
+    pygame.display.flip()
+    clock.tick(FPS)
+
+pygame.quit()
+sys.exit()
+
